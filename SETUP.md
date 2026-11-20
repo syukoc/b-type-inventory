@@ -38,6 +38,9 @@ create policy "kv_state anon full access"
   to anon
   using (true)
   with check (true);
+
+-- テーブルへのアクセス許可（これがないと「permission denied」になります）
+grant select, insert, update, delete on public.kv_state to anon;
 ```
 
 このアプリは、アプリ全体のデータを `kv_state` という表の `state-v1` という1行にまとめて保存します
