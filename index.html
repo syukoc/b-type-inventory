@@ -1,0 +1,1570 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>菓子製造の在庫・製造管理</title>
+<!--
+  このアプリは1ファイル（このHTML）で動く静的Webアプリです
+  仕組み・データ構造・機能追加の手順は、同じフォルダの HANDOVER.md にまとめてあります
+  作業を始める前に HANDOVER.md を読んでください
+  設定（接続先・暗証番号）は config.js に分けてあります
+-->
+<style>
+  :root{
+    color-scheme: light dark;
+    --bg:#faf6f1; --surface:#fffdf9; --text:#33241a; --dim:#7d6a58;
+    --border:#e7dacb; --accent:#5b3a29; --accent-soft:#f3e7d8;
+    --warn:#b91c1c; --warn-soft:#fbe9e7; --ok:#3f7a1f;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#1d140e; --surface:#2a1d13; --text:#f5ead9; --dim:#b8a48f;
+      --border:#453324; --accent:#e0a458; --accent-soft:#3a2a1a;
+      --warn:#f08a80; --warn-soft:#40201c; --ok:#9ccc65;
+    }
+  }
+  *{ box-sizing:border-box; }
+  html{ -webkit-text-size-adjust:100%; }
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP",sans-serif;
+    line-height:1.5;
+  }
+  button, input, select{ font:inherit; color:var(--text); }
+  button{ cursor:pointer; min-height:2.75rem; }
+  button:disabled{ opacity:.45; cursor:default; }
+  input, select{
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:.6rem; padding:.55rem .7rem; min-height:2.75rem; width:100%;
+  }
+  label{ display:block; font-size:.875rem; color:var(--dim); margin-bottom:.25rem; }
+  .wrap{ max-width:48rem; margin:0 auto; padding:0 1rem 3rem; }
+
+  /* mode switch */
+  .mode-switch{ display:flex; gap:.5rem; padding-top:1rem; }
+  .mode-btn{
+    flex:1; border-radius:1rem; font-weight:700; height:3.5rem; font-size:1.125rem;
+    background:var(--surface); color:var(--dim); border:1px solid var(--border);
+  }
+  .mode-btn.active{ background:var(--accent); color:#fff; border-color:var(--accent); }
+  @media (prefers-color-scheme: dark){ .mode-btn.active{ color:#1d140e; } }
+  .mode-desc{ text-align:center; font-size:.875rem; color:var(--dim); margin:.5rem 0 0; }
+
+  .notice{
+    margin-top:.75rem; border-radius:1rem; padding:.6rem 1rem;
+    background:var(--accent-soft); color:var(--text); font-size:.875rem; font-weight:700;
+    text-align:center;
+  }
+  .save-error{
+    margin-top:.75rem; border-radius:1rem; padding:.6rem 1rem;
+    background:var(--warn-soft); color:var(--warn); font-size:.875rem; font-weight:700;
+    text-align:center; display:none;
+  }
+
+  /* tabs */
+  nav.tabs{ display:flex; flex-wrap:wrap; gap:.5rem; margin-top:1rem; }
+  .tab-btn{
+    flex:1 1 30%; white-space:nowrap; border-radius:999px; padding:.4rem .25rem;
+    font-weight:700; font-size:1rem; min-height:3.25rem;
+    background:var(--surface); color:var(--text); border:1px solid var(--border);
+  }
+  body.staff .tab-btn{ min-height:2.75rem; }
+  .tab-btn.active{ background:var(--accent); color:#fff; border-color:var(--accent); }
+  @media (prefers-color-scheme: dark){ .tab-btn.active{ color:#1d140e; } }
+  .badge{
+    display:inline-block; margin-left:.25rem; border-radius:999px; padding:0 .45rem;
+    background:var(--warn); color:#fff; font-size:.75rem; font-weight:700; vertical-align:middle;
+  }
+
+  main{ margin-top:1rem; }
+
+  /* cards */
+  .card{
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:1.5rem; padding:1rem; margin-bottom:.75rem;
+  }
+  .card.low{ border-color:var(--warn); }
+  .card-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:.75rem; }
+  .card-title{ font-weight:700; font-size:1.125rem; margin:0; word-break:break-word; }
+  body.easy .card-title{ font-size:1.5rem; }
+  .card-note{ font-size:.875rem; color:var(--dim); margin:.15rem 0 0; word-break:break-word; }
+  .stock-line{ display:flex; align-items:baseline; gap:.5rem; margin-top:.25rem; }
+  .stock-num{ font-weight:700; font-size:3rem; line-height:1.1; }
+  body.easy .stock-num{ font-size:3.75rem; }
+  .stock-num.low{ color:var(--warn); }
+  .stock-unit{ color:var(--dim); font-size:1.125rem; }
+  body.easy .stock-unit{ font-size:1.5rem; }
+  .low-text{ color:var(--warn); font-weight:700; margin:.25rem 0 0; }
+  .expiry-text{ font-weight:700; margin:.25rem 0 0; font-size:.875rem; }
+  body.easy .expiry-text{ font-size:1.125rem; }
+  .expiry-text.warn{ color:var(--warn); }
+  .expiry-text.accent{ color:var(--accent); }
+  .expiry-text.dim{ color:var(--dim); }
+
+  .btn-row{ display:flex; gap:.5rem; margin-top:1rem; }
+  .btn{
+    flex:1; border-radius:1rem; font-weight:700; border:none;
+    min-height:3rem; font-size:1rem; padding:.4rem .5rem;
+  }
+  body.easy .btn.main{ min-height:4rem; font-size:1.25rem; }
+  .btn-accent{ background:var(--accent); color:#fff; }
+  @media (prefers-color-scheme: dark){ .btn-accent{ color:#1d140e; } }
+  .btn-soft{ background:var(--accent-soft); color:var(--text); }
+  .btn-warnsoft{ background:var(--warn-soft); color:var(--warn); }
+  .btn-warn{ background:var(--warn); color:#fff; }
+  .btn-outline{ background:transparent; border:2px solid var(--accent); color:var(--accent); }
+  .btn-outline-dim{ background:transparent; border:2px solid var(--border); color:var(--text); }
+  .btn-dashed{
+    width:100%; border:2px dashed var(--border); background:transparent;
+    color:var(--accent); border-radius:1rem; font-weight:700; min-height:3.25rem;
+  }
+  .edit-btn{
+    flex:none; border:none; border-radius:999px; background:var(--accent-soft);
+    color:var(--text); font-weight:700; font-size:.875rem; padding:0 1rem; min-height:2.5rem;
+  }
+  .hint{ font-size:.875rem; color:var(--dim); margin:.5rem 0 0; }
+  .banner{
+    border-radius:1rem; background:var(--warn-soft); color:var(--warn);
+    font-weight:700; padding:.75rem 1rem; margin-bottom:.75rem;
+  }
+  .empty{
+    background:var(--surface); border:1px solid var(--border); border-radius:1.5rem;
+    padding:1.5rem; text-align:center;
+  }
+  .empty p{ margin:0; }
+  body.easy .empty .empty-main{ font-size:1.25rem; }
+
+  h3.group-title{ font-size:1.125rem; margin:1.25rem 0 .5rem; }
+  body.easy h3.group-title{ font-size:1.5rem; }
+  h3.group-title.warn{ color:var(--warn); }
+  ul.plain{ list-style:none; margin:0; padding:0; }
+  ul.plain > li{ margin-bottom:.5rem; }
+
+  .status-chip{
+    flex:none; border-radius:999px; padding:.15rem .7rem; font-size:.875rem; font-weight:700;
+  }
+  .chip-ok{ background:var(--accent-soft); color:var(--ok); }
+  .chip-live{ background:var(--accent); color:#fff; }
+  @media (prefers-color-scheme: dark){ .chip-live{ color:#1d140e; } }
+  .chip-warn{ background:var(--warn-soft); color:var(--warn); }
+  .chip-badge-warn{ background:var(--warn); color:#fff; }
+  .chip-badge-accent{ background:var(--accent); color:#fff; }
+  @media (prefers-color-scheme: dark){ .chip-badge-accent{ color:#1d140e; } }
+
+  .line-box{ background:var(--accent-soft); border-radius:1rem; padding:.75rem 1rem; }
+  .link-btn{
+    background:none; border:none; color:var(--dim); font-weight:700; font-size:.875rem;
+    text-decoration:underline; padding:.25rem 0; min-height:2rem;
+  }
+  .link-btn.warn{ color:var(--warn); }
+  .link-btn.accent{ color:var(--accent); }
+  .confirm-box{ background:var(--warn-soft); border-radius:1rem; padding:.75rem 1rem; margin-top:.5rem; }
+  .confirm-box p{ margin:0; color:var(--warn); font-weight:700; }
+
+  .form-card{
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:1.5rem; padding:1rem; margin-bottom:1rem;
+  }
+  .form-grid{ display:grid; grid-template-columns:1fr; gap:.75rem; margin-top:.75rem; }
+  .form-title{ font-weight:700; margin:0; }
+
+  /* history */
+  .delta{ font-weight:700; font-size:1.25rem; flex:none; }
+  body.easy .delta{ font-size:1.5rem; }
+  .delta.plus{ color:var(--ok); }
+  .delta.minus{ color:var(--warn); }
+  .reason-chip{
+    display:inline-block; margin-left:.5rem; border-radius:999px; padding:0 .5rem;
+    background:var(--accent-soft); font-size:.75rem; font-weight:700; vertical-align:middle;
+  }
+
+  /* modal */
+  .overlay{
+    position:fixed; inset:0; z-index:50; background:rgba(0,0,0,.5);
+    display:none; align-items:flex-end; justify-content:center;
+  }
+  .overlay.open{ display:flex; }
+  @media (min-width:640px){ .overlay{ align-items:center; } }
+  .sheet{
+    background:var(--surface); width:100%; max-width:32rem; max-height:92vh; overflow-y:auto;
+    border-radius:1.5rem 1.5rem 0 0; padding:1.25rem 1.25rem 2rem;
+  }
+  @media (min-width:640px){ .sheet{ border-radius:1.5rem; } }
+  .sheet-head{ display:flex; align-items:center; justify-content:space-between; gap:.75rem; margin-bottom:1rem; }
+  .sheet-title{ font-weight:700; font-size:1.125rem; margin:0; word-break:break-word; }
+  body.easy .sheet-title{ font-size:1.5rem; }
+  .close-btn{
+    flex:none; width:2.75rem; height:2.75rem; border-radius:999px; border:none;
+    background:var(--accent-soft); color:var(--text); font-size:1.25rem;
+  }
+  .chips{ display:flex; flex-wrap:wrap; gap:.5rem; margin-top:1rem; }
+  .chip-btn{
+    border:none; border-radius:999px; font-weight:700; padding:0 1.25rem;
+    min-height:3.5rem; font-size:1.25rem; background:var(--accent-soft); color:var(--text);
+  }
+  body.staff .chip-btn{ min-height:2.75rem; font-size:.875rem; padding:0 1rem; }
+  .chip-btn.active{ background:var(--accent); color:#fff; }
+  @media (prefers-color-scheme: dark){ .chip-btn.active{ color:#1d140e; } }
+
+  /* stepper */
+  .stepper{ display:flex; align-items:center; justify-content:center; gap:.4rem; margin-top:.75rem; }
+  .step-btn{
+    border:none; border-radius:1rem; font-weight:700; padding:0 .8rem;
+    min-width:3.5rem; height:4rem; font-size:1.5rem;
+  }
+  body.staff .step-btn{ height:3rem; font-size:1.125rem; min-width:3rem; }
+  .step-minus{ background:var(--warn-soft); color:var(--warn); }
+  .step-plus{ background:var(--accent-soft); color:var(--accent); }
+  .step-value{ text-align:center; font-weight:700; font-size:3rem; min-width:6.5rem; line-height:1.1; }
+  body.staff .step-value{ font-size:2.75rem; }
+  .step-value .unit{ font-size:1.25rem; }
+  .direct-input{ display:flex; align-items:center; justify-content:center; gap:.5rem; margin-top:.75rem; }
+  .direct-input input{ width:6rem; text-align:center; }
+  .direct-input span{ font-size:.875rem; color:var(--dim); }
+
+  .center{ text-align:center; }
+  .big-done{ font-weight:700; color:var(--ok); font-size:1.5rem; text-align:center; margin:.5rem 0 0; }
+  body.easy .big-done{ font-size:1.875rem; }
+  .err{ color:var(--warn); margin-top:.75rem; }
+  .warn-center{ color:var(--warn); font-weight:700; text-align:center; margin-top:.5rem; }
+
+  /* PIN screen */
+  #pin-screen{
+    min-height:100vh; display:none; align-items:center; justify-content:center; padding:1rem;
+  }
+  #pin-screen.open{ display:flex; }
+  .pin-box{ width:100%; max-width:22rem; text-align:center; }
+  .pin-box h1{ font-size:1.5rem; margin:0 0 .5rem; }
+  .pin-box input{
+    text-align:center; font-size:1.75rem; letter-spacing:.4em; margin-top:1rem;
+  }
+  #loading{ padding:4rem 1rem; text-align:center; color:var(--dim); display:none; }
+</style>
+</head>
+<body>
+
+<!-- PIN ゲート（config.js の APP_PIN が空なら表示されません） -->
+<div id="pin-screen">
+  <div class="pin-box">
+    <h1>菓子製造の在庫・製造管理</h1>
+    <p style="color:var(--dim)">暗証番号を入力してください</p>
+    <input id="pin-input" type="password" inputmode="numeric" autocomplete="off" aria-label="暗証番号">
+    <p id="pin-error" class="err" role="alert" style="display:none">暗証番号が違います</p>
+    <button type="button" class="btn btn-accent" style="width:100%;margin-top:1rem;min-height:3.5rem;font-size:1.125rem" onclick="submitPin()">開く</button>
+  </div>
+</div>
+
+<div id="loading">読み込んでいます…</div>
+
+<div id="app" style="display:none">
+  <div class="wrap">
+    <div class="mode-switch" role="radiogroup" aria-label="画面の種類">
+      <button type="button" id="mode-easy" class="mode-btn" role="radio" onclick="setMode('easy')">かんたん入力</button>
+      <button type="button" id="mode-staff" class="mode-btn" role="radio" onclick="setMode('staff')">職員用</button>
+    </div>
+    <p class="mode-desc" id="mode-desc"></p>
+
+    <div id="local-notice" class="notice" style="display:none">この端末だけの保存中（共有未設定）</div>
+    <div id="save-error" class="save-error" role="alert">保存できませんでした。通信状態を確認してもう一度操作してください</div>
+
+    <nav class="tabs" id="tabs" aria-label="画面の切り替え"></nav>
+    <main id="main"></main>
+  </div>
+</div>
+
+<!-- ダイアログ -->
+<div id="overlay" class="overlay" role="dialog" aria-modal="true">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h2 class="sheet-title" id="sheet-title"></h2>
+      <button type="button" class="close-btn" aria-label="閉じる" onclick="closeModal()">✕</button>
+    </div>
+    <div id="sheet-body"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script>
+"use strict";
+/* ============================================================
+   菓子製造の在庫・製造管理（共有Webアプリ版）
+   データは Supabase の kv_state テーブルに state-v1 として一括保存
+   config.js が未設定の場合は、この端末の localStorage に保存
+   ============================================================ */
+
+const CFG = window.APP_CONFIG || {};
+const useRemote = !!(
+  CFG.SUPABASE_URL && CFG.SUPABASE_ANON_KEY &&
+  window.supabase && typeof window.supabase.createClient === "function"
+);
+let sb = null;
+if (useRemote) {
+  try { sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY); }
+  catch (e) { sb = null; }
+}
+const remoteActive = !!(useRemote && sb);
+
+const LS_STATE_KEY = "kashi-state-v1";
+const LS_MODE_KEY = "kashi-mode";
+const REMOTE_KEY = "state-v1";
+
+/* ---------- 状態 ---------- */
+function emptyState() {
+  return {
+    items: [], movements: [], schedules: [], events: [],
+    seq: { item: 1, movement: 1, schedule: 1, event: 1, line: 1 }
+  };
+}
+let state = emptyState();
+
+function normalizeState(s) {
+  const base = emptyState();
+  if (!s || typeof s !== "object") return base;
+  if (Array.isArray(s.items)) base.items = s.items;
+  if (Array.isArray(s.movements)) base.movements = s.movements;
+  if (Array.isArray(s.schedules)) base.schedules = s.schedules;
+  if (Array.isArray(s.events)) base.events = s.events;
+  if (s.seq && typeof s.seq === "object") {
+    for (const k of Object.keys(base.seq)) {
+      if (typeof s.seq[k] === "number" && s.seq[k] > 0) base.seq[k] = s.seq[k];
+    }
+  }
+  return base;
+}
+function nextId(kind) { return state.seq[kind]++; }
+
+/* ---------- 読み込み・保存 ---------- */
+async function loadState() {
+  if (remoteActive) {
+    const res = await sb.from("kv_state").select("value").eq("key", REMOTE_KEY).maybeSingle();
+    if (res.error) throw res.error;
+    state = normalizeState(res.data ? res.data.value : null);
+  } else {
+    try {
+      const raw = localStorage.getItem(LS_STATE_KEY);
+      state = normalizeState(raw ? JSON.parse(raw) : null);
+    } catch (e) { state = emptyState(); }
+  }
+}
+
+let saveErrorShown = false;
+function showSaveError() {
+  saveErrorShown = true;
+  const el = document.getElementById("save-error");
+  if (el) el.style.display = "block";
+}
+function clearSaveError() {
+  if (!saveErrorShown) return;
+  saveErrorShown = false;
+  const el = document.getElementById("save-error");
+  if (el) el.style.display = "none";
+}
+async function saveState() {
+  if (remoteActive) {
+    const res = await sb.from("kv_state").upsert(
+      { key: REMOTE_KEY, value: state, updated_at: new Date().toISOString() },
+      { onConflict: "key" }
+    );
+    if (res.error) { showSaveError(); return; }
+    clearSaveError();
+  } else {
+    try { localStorage.setItem(LS_STATE_KEY, JSON.stringify(state)); clearSaveError(); }
+    catch (e) { showSaveError(); }
+  }
+}
+/* 変更を加えて、画面を描き直して、保存する */
+function mutate(fn) { fn(); render(); saveState(); }
+
+/* ---------- 共通の小物 ---------- */
+const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+function todayStr() {
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return d.getFullYear() + "-" + m + "-" + day;
+}
+function fmtDate(date) {
+  const d = new Date(date + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return date;
+  return (d.getMonth() + 1) + "月" + d.getDate() + "日（" + WEEKDAYS[d.getDay()] + "）";
+}
+function fmtNum(n) {
+  return Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
+}
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function itemById(id) { return state.items.find((i) => i.id === id) || null; }
+function isLow(item) { return item.lowThreshold != null && item.stock <= item.lowThreshold; }
+function daysUntil(date) {
+  const a = new Date(todayStr() + "T00:00:00").getTime();
+  const b = new Date(date + "T00:00:00").getTime();
+  return Math.round((b - a) / 86400000);
+}
+function expiryLevel(item) {
+  if (!item.expiryDate || item.stock <= 0) return "none";
+  const d = daysUntil(item.expiryDate);
+  if (d < 0) return "expired";
+  if (d === 0) return "today";
+  if (d <= 3) return "soon";
+  if (d <= 7) return "near";
+  return "ok";
+}
+function expiryText(item) {
+  if (!item.expiryDate) return "";
+  const d = daysUntil(item.expiryDate);
+  if (d < 0) return "期限切れ（" + (-d) + "日過ぎています）";
+  if (d === 0) return "今日が期限です";
+  if (d === 1) return "明日が期限です";
+  return "あと" + d + "日";
+}
+function needsExpiryAttention(item) {
+  const lv = expiryLevel(item);
+  return lv === "expired" || lv === "today" || lv === "soon" || lv === "near";
+}
+
+const REASON_META = {
+  production:   { label: "作った",       sentence: "作りました",               sign: 1 },
+  shipment:     { label: "出荷・販売",   sentence: "出しました",               sign: -1 },
+  purchase:     { label: "仕入れ・入荷", sentence: "入荷しました",             sign: 1 },
+  usage:        { label: "製造で使用",   sentence: "使いました",               sign: -1 },
+  loss:         { label: "失敗・ロス",   sentence: "失敗などでなくなりました", sign: -1 },
+  waste:        { label: "廃棄",         sentence: "捨てました",               sign: -1 },
+  adjust:       { label: "在庫の調整",   sentence: "調整しました",             sign: 0 },
+  event_out:    { label: "出店へ持ち出し", sentence: "出店へ持ち出しました",   sign: -1 },
+  event_return: { label: "出店から戻し",   sentence: "出店から戻ってきました", sign: 1 }
+};
+const UNIT_SUGGESTIONS = ["個", "枚", "袋", "箱", "本", "g", "kg", "ml", "L", "パック"];
+
+/* ---------- 在庫の記録（サーバー版 recordMovement と同じ規則） ---------- */
+function applyMovement(itemId, reason, qty, date, note) {
+  const item = itemById(itemId);
+  if (!item) throw new Error("品目が見つかりません");
+  const sign = REASON_META[reason].sign;
+  const delta = sign === 0 ? qty : sign * Math.abs(qty);
+  if (delta === 0) throw new Error("数が0です");
+  state.movements.unshift({
+    id: nextId("movement"), itemId: itemId, delta: delta,
+    quantity: Math.abs(qty), reason: reason, date: date,
+    note: note || "", createdAt: new Date().toISOString()
+  });
+  item.stock += delta;
+  return item.stock;
+}
+function undoMovement(id) {
+  const idx = state.movements.findIndex((m) => m.id === id);
+  if (idx < 0) throw new Error("記録が見つかりません");
+  const mv = state.movements[idx];
+  const item = itemById(mv.itemId);
+  if (item) item.stock -= mv.delta;
+  state.movements.splice(idx, 1);
+}
+
+/* ---------- 画面の状態 ---------- */
+let mode = "easy";
+try { if (localStorage.getItem(LS_MODE_KEY) === "staff") mode = "staff"; } catch (e) {}
+let tab = "products";
+let showScheduleForm = false;
+let showEventForm = false;
+let confirmCancelScheduleId = null;
+let confirmDeleteScheduleId = null;
+let confirmCloseEventId = null;
+let confirmDeleteEventId = null;
+let confirmUndoMovementId = null;
+let expiryEditingId = null;
+
+function isEasy() { return mode === "easy"; }
+function setMode(m) {
+  mode = m;
+  try { localStorage.setItem(LS_MODE_KEY, m); } catch (e) {}
+  render();
+}
+function setTab(t) { tab = t; render(); }
+
+const TABS = [
+  { key: "products", label: "製品" },
+  { key: "materials", label: "材料・包材" },
+  { key: "schedule", label: "製造予定" },
+  { key: "events", label: "出店" },
+  { key: "expiry", label: "期限" },
+  { key: "history", label: "記録" }
+];
+
+function render() {
+  document.body.classList.toggle("easy", isEasy());
+  document.body.classList.toggle("staff", !isEasy());
+  const me = document.getElementById("mode-easy");
+  const ms = document.getElementById("mode-staff");
+  me.classList.toggle("active", isEasy());
+  ms.classList.toggle("active", !isEasy());
+  me.setAttribute("aria-checked", String(isEasy()));
+  ms.setAttribute("aria-checked", String(!isEasy()));
+  document.getElementById("mode-desc").textContent = isEasy()
+    ? "作った数・使った数を、大きなボタンで記録できます"
+    : "品目の追加・編集、予定の管理、記録の取り消しができます";
+  document.getElementById("local-notice").style.display = remoteActive ? "none" : "block";
+
+  const expiryCount = state.items.filter(needsExpiryAttention).length;
+  const openEventCount = state.events.filter((e) => e.status === "open").length;
+  document.getElementById("tabs").innerHTML = TABS.map((t) => {
+    let badge = "";
+    if (t.key === "expiry" && expiryCount > 0) badge = '<span class="badge">' + expiryCount + "</span>";
+    if (t.key === "events" && openEventCount > 0) badge = '<span class="badge">' + openEventCount + "</span>";
+    return '<button type="button" class="tab-btn' + (tab === t.key ? " active" : "") +
+      '" onclick="setTab(\'' + t.key + '\')">' + t.label + badge + "</button>";
+  }).join("");
+
+  const main = document.getElementById("main");
+  if (tab === "products") main.innerHTML = inventorySectionHTML("product");
+  else if (tab === "materials") main.innerHTML = inventorySectionHTML("material");
+  else if (tab === "schedule") main.innerHTML = scheduleSectionHTML();
+  else if (tab === "events") main.innerHTML = eventsSectionHTML();
+  else if (tab === "expiry") main.innerHTML = expirySectionHTML();
+  else main.innerHTML = historySectionHTML();
+}
+
+/* ---------- 製品・材料の一覧 ---------- */
+function itemCardHTML(item) {
+  const low = isLow(item);
+  const lv = expiryLevel(item);
+  let h = '<section class="card' + (low ? " low" : "") + '" aria-label="' + esc(item.name) + '">';
+  h += '<div class="card-head"><div style="min-width:0">';
+  h += '<h3 class="card-title">' + esc(item.name) + "</h3>";
+  if (item.note) h += '<p class="card-note">' + esc(item.note) + "</p>";
+  h += "</div>";
+  if (!isEasy()) {
+    h += '<button type="button" class="edit-btn" onclick="openItemForm(' + item.id + ')">編集</button>';
+  }
+  h += "</div>";
+  h += '<p class="stock-line"><span class="stock-num' + (low ? " low" : "") + '">' + fmtNum(item.stock) +
+    '</span><span class="stock-unit">' + esc(item.unit) + '</span><span style="font-size:.875rem;color:var(--dim)">在庫</span></p>';
+  if (low) {
+    h += '<p class="low-text">在庫が少なくなっています' +
+      (item.lowThreshold != null ? "（" + fmtNum(item.lowThreshold) + esc(item.unit) + "以下）" : "") + "</p>";
+  }
+  if (item.expiryDate && item.stock > 0) {
+    const cls = (lv === "expired" || lv === "today" || lv === "soon") ? "warn" : (lv === "near" ? "accent" : "dim");
+    h += '<p class="expiry-text ' + cls + '">賞味期限：' + fmtDate(item.expiryDate) + "（" + expiryText(item) + "）</p>";
+  }
+  h += '<div class="btn-row">';
+  if (item.kind === "product") {
+    h += '<button type="button" class="btn main btn-accent" onclick="openRecord(' + item.id + ',\'production\')">作った</button>';
+    h += '<button type="button" class="btn main btn-soft" onclick="openRecord(' + item.id + ',\'shipment\')">出した</button>';
+  } else {
+    h += '<button type="button" class="btn main btn-accent" onclick="openRecord(' + item.id + ',\'usage\')">使った</button>';
+    h += '<button type="button" class="btn main btn-warnsoft" onclick="openRecord(' + item.id + ',\'loss\')">失敗した</button>';
+    if (!isEasy()) {
+      h += '<button type="button" class="btn main btn-soft" onclick="openRecord(' + item.id + ',\'purchase\')">入荷</button>';
+    }
+  }
+  h += "</div>";
+  if (item.kind === "product") {
+    h += '<div class="btn-row">';
+    h += '<button type="button" class="btn btn-outline" onclick="openRecord(' + item.id + ',\'event_out\')">出店へ持ち出す</button>';
+    h += '<button type="button" class="btn btn-outline-dim" onclick="openRecord(' + item.id + ',\'event_return\')">出店から戻す</button>';
+    h += "</div>";
+    h += '<p class="hint">出店の予定ごとにまとめたいときは「出店」画面を使うと、売れた数まで分かります</p>';
+  }
+  h += "</section>";
+  return h;
+}
+
+function inventorySectionHTML(kind) {
+  const list = state.items.filter((i) => i.kind === kind);
+  const lowCount = list.filter(isLow).length;
+  const expiryCount = list.filter(needsExpiryAttention).length;
+  let h = "";
+  if (expiryCount > 0) {
+    h += '<p class="banner" role="alert">賞味期限が近い・過ぎているものが ' + expiryCount + ' 件あります（「期限」画面で確認できます）</p>';
+  }
+  if (lowCount > 0) {
+    h += '<p class="banner" role="alert">在庫が少ないものが ' + lowCount + " 件あります</p>";
+  }
+  if (list.length === 0) {
+    h += '<div class="empty"><p class="empty-main">' +
+      (kind === "product" ? "製品はまだ登録されていません" : "材料・包材はまだ登録されていません") + "</p>" +
+      '<p class="hint">' + (isEasy() ? "職員の方が「職員用」画面から登録します" : "下のボタンから追加してください") + "</p></div>";
+  } else {
+    h += list.map(itemCardHTML).join("");
+  }
+  if (!isEasy()) {
+    h += '<button type="button" class="btn-dashed" onclick="openItemForm(null,\'' + kind + '\')">＋ ' +
+      (kind === "product" ? "製品" : "材料・包材") + "を追加</button>";
+  }
+  return h;
+}
+
+/* ---------- 製造予定 ---------- */
+function scheduleSectionHTML() {
+  const today = todayStr();
+  const products = state.items.filter((i) => i.kind === "product");
+  const sorted = state.schedules.slice().sort((a, b) =>
+    a.date === b.date ? a.id - b.id : (a.date < b.date ? -1 : 1));
+  const upcoming = sorted.filter((s) => s.date >= today && s.status !== "cancelled");
+  const todays = upcoming.filter((s) => s.date === today);
+  const later = upcoming.filter((s) => s.date > today);
+  const past = sorted.filter((s) => s.date < today || s.status === "cancelled").slice(-30).reverse();
+
+  let h = "";
+  if (!isEasy()) {
+    if (showScheduleForm) {
+      h += '<form class="form-card" onsubmit="submitScheduleForm(event)">';
+      h += '<h3 class="form-title">製造予定を追加</h3><div class="form-grid">';
+      h += '<div><label for="sch-date">日付</label><input id="sch-date" type="date" required value="' + today + '"></div>';
+      h += '<div><label for="sch-title">予定の名前</label><input id="sch-title" type="text" placeholder="例：クッキー製造"></div>';
+      h += '<div><label for="sch-item">製品（できたら在庫に加える場合）</label><select id="sch-item"><option value="">選ばない</option>' +
+        products.map((p) => '<option value="' + p.id + '">' + esc(p.name) + "</option>").join("") + "</select></div>";
+      h += '<div><label for="sch-qty">作る予定の数（任意）</label><input id="sch-qty" type="number" min="0" placeholder="例：30"></div>';
+      h += '<div><label for="sch-note">メモ（任意）</label><input id="sch-note" type="text"></div>';
+      h += '<p class="err" id="sch-error" role="alert" style="display:none"></p>';
+      h += '<div class="btn-row" style="margin-top:0"><button type="submit" class="btn btn-accent">予定を追加する</button>' +
+        '<button type="button" class="btn btn-soft" style="flex:0 0 auto;padding:0 1.25rem" onclick="toggleScheduleForm(false)">閉じる</button></div>';
+      h += "</div></form>";
+    } else {
+      h += '<button type="button" class="btn-dashed" style="margin-bottom:1rem" onclick="toggleScheduleForm(true)">＋ 製造予定を追加</button>';
+    }
+  }
+
+  h += scheduleGroupHTML("今日の予定（" + fmtDate(today) + "）", todays);
+  if (todays.length === 0) {
+    h += '<p style="color:var(--dim);margin-top:1.25rem;font-size:' + (isEasy() ? "1.25rem" : "1rem") +
+      '">今日（' + fmtDate(today) + "）の製造予定はありません</p>";
+  }
+  const byDate = new Map();
+  for (const s of later) {
+    if (!byDate.has(s.date)) byDate.set(s.date, []);
+    byDate.get(s.date).push(s);
+  }
+  for (const entry of byDate.entries()) h += scheduleGroupHTML(fmtDate(entry[0]), entry[1]);
+  if (!isEasy()) h += scheduleGroupHTML("終わった予定・中止した予定", past);
+  return h;
+}
+
+function scheduleGroupHTML(label, list) {
+  if (list.length === 0) return "";
+  return '<h3 class="group-title">' + esc(label) + '</h3><ul class="plain">' +
+    list.map(scheduleRowHTML).join("") + "</ul>";
+}
+
+function scheduleRowHTML(s) {
+  const item = s.itemId != null ? itemById(s.itemId) : null;
+  let h = '<li class="card" style="margin-bottom:.5rem">';
+  h += '<div class="card-head"><div style="min-width:0">';
+  h += '<p class="card-title" style="font-size:' + (isEasy() ? "1.5rem" : "1rem") + '">' + esc(s.title) + "</p>";
+  let sub = "";
+  if (item) sub += esc(item.name) + "　";
+  if (s.plannedQty != null) sub += "作る予定： " + fmtNum(s.plannedQty) + " 個";
+  if (s.status === "done" && s.actualQty != null) sub += "　作れた数： " + fmtNum(s.actualQty) + " 個";
+  if (sub) h += '<p class="card-note" style="font-size:' + (isEasy() ? "1.125rem" : ".875rem") + '">' + sub + "</p>";
+  if (s.note) h += '<p class="card-note">' + esc(s.note) + "</p>";
+  h += "</div>";
+  if (s.status === "done") {
+    h += '<span class="status-chip chip-ok">できました</span>';
+  } else if (s.status === "cancelled") {
+    h += '<span class="status-chip chip-warn">中止</span>';
+  } else {
+    h += '<button type="button" class="btn btn-accent" style="flex:0 0 auto;padding:0 1.25rem;min-height:' +
+      (isEasy() ? "3.5rem" : "2.75rem") + ";font-size:" + (isEasy() ? "1.25rem" : ".875rem") +
+      '" onclick="openCompleteSchedule(' + s.id + ')">できた</button>';
+  }
+  h += "</div>";
+  if (!isEasy() && s.status !== "done" && s.status !== "cancelled") {
+    if (confirmCancelScheduleId === s.id) {
+      h += '<div style="margin-top:.5rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">' +
+        '<span style="font-size:.875rem;font-weight:700;color:var(--warn)">この予定を中止しますか？</span>' +
+        '<button type="button" class="link-btn warn" onclick="setScheduleStatus(' + s.id + ',\'cancelled\')">中止する</button>' +
+        '<button type="button" class="link-btn" onclick="cancelConfirm()">やめる</button></div>';
+    } else {
+      h += '<div style="margin-top:.25rem"><button type="button" class="link-btn" onclick="askCancelSchedule(' + s.id + ')">予定を中止する</button></div>';
+    }
+  }
+  if (!isEasy() && (s.status === "done" || s.status === "cancelled")) {
+    h += '<div style="margin-top:.25rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">' +
+      '<button type="button" class="link-btn" onclick="setScheduleStatus(' + s.id + ',\'planned\')">予定に戻す</button>';
+    if (confirmDeleteScheduleId === s.id) {
+      h += '<span style="font-size:.875rem;font-weight:700;color:var(--warn)">削除しますか？</span>' +
+        '<button type="button" class="link-btn warn" onclick="deleteSchedule(' + s.id + ')">削除する</button>' +
+        '<button type="button" class="link-btn" onclick="cancelConfirm()">やめる</button>';
+    } else {
+      h += '<button type="button" class="link-btn" onclick="askDeleteSchedule(' + s.id + ')">削除</button>';
+    }
+    h += "</div>";
+  }
+  h += "</li>";
+  return h;
+}
+
+function toggleScheduleForm(show) { showScheduleForm = show; render(); }
+function askCancelSchedule(id) { confirmCancelScheduleId = id; render(); }
+function askDeleteSchedule(id) { confirmDeleteScheduleId = id; render(); }
+function cancelConfirm() {
+  confirmCancelScheduleId = null; confirmDeleteScheduleId = null;
+  confirmCloseEventId = null; confirmDeleteEventId = null; confirmUndoMovementId = null;
+  render();
+}
+function submitScheduleForm(ev) {
+  ev.preventDefault();
+  const title = document.getElementById("sch-title").value.trim();
+  const errEl = document.getElementById("sch-error");
+  if (!title) { errEl.textContent = "予定の名前を入力してください"; errEl.style.display = "block"; return; }
+  const itemVal = document.getElementById("sch-item").value;
+  const qtyVal = document.getElementById("sch-qty").value.trim();
+  const data = {
+    id: nextId("schedule"),
+    date: document.getElementById("sch-date").value || todayStr(),
+    title: title,
+    itemId: itemVal === "" ? null : Number(itemVal),
+    plannedQty: qtyVal === "" ? null : Number(qtyVal),
+    actualQty: null, status: "planned",
+    note: document.getElementById("sch-note").value.trim()
+  };
+  mutate(() => { state.schedules.push(data); showScheduleForm = false; });
+}
+function setScheduleStatus(id, status) {
+  mutate(() => {
+    const s = state.schedules.find((x) => x.id === id);
+    if (s) { s.status = status; s.actualQty = null; }
+    confirmCancelScheduleId = null;
+  });
+}
+function deleteSchedule(id) {
+  mutate(() => {
+    state.schedules = state.schedules.filter((x) => x.id !== id);
+    confirmDeleteScheduleId = null;
+  });
+}
+
+/* ---------- 出店（イベント） ----------
+   出店ごとに「持ち出し」「戻し」を記録し、売れた数＝持ち出し−戻し を自動計算する
+   持ち出しで工房の在庫が減り、戻しで在庫が戻る。在庫より多くは持ち出せない */
+function eventTotals(ev) {
+  let taken = 0, returned = 0;
+  for (const l of ev.lines) { taken += l.takenQty; returned += l.returnedQty; }
+  return { taken: taken, returned: returned, sold: taken - returned };
+}
+function lineSold(l) { return Math.max(0, l.takenQty - l.returnedQty); }
+
+function eventsSectionHTML() {
+  const products = state.items.filter((i) => i.kind === "product");
+  void products;
+  const open = state.events.filter((e) => e.status === "open");
+  const closed = state.events.filter((e) => e.status === "closed");
+  let h = '<p style="color:var(--dim);font-size:' + (isEasy() ? "1.125rem" : ".875rem") +
+    '">マルシェなどの出店ごとに、持ち出した数・戻ってきた数・売れた数をまとめられます</p>';
+  if (!isEasy()) {
+    if (showEventForm) {
+      h += '<form class="form-card" onsubmit="submitEventForm(event)">';
+      h += '<h3 class="form-title">出店を追加</h3><div class="form-grid">';
+      h += '<div><label for="ev-date">日付</label><input id="ev-date" type="date" required value="' + todayStr() + '"></div>';
+      h += '<div><label for="ev-name">出店の名前</label><input id="ev-name" type="text" placeholder="例：○○マルシェ"></div>';
+      h += '<div><label for="ev-place">場所（任意）</label><input id="ev-place" type="text" placeholder="例：○○公園"></div>';
+      h += '<div><label for="ev-note">メモ（任意）</label><input id="ev-note" type="text"></div>';
+      h += '<p class="err" id="ev-error" role="alert" style="display:none"></p>';
+      h += '<div class="btn-row" style="margin-top:0"><button type="submit" class="btn btn-accent">出店を追加する</button>' +
+        '<button type="button" class="btn btn-soft" style="flex:0 0 auto;padding:0 1.25rem" onclick="toggleEventForm(false)">閉じる</button></div>';
+      h += "</div></form>";
+    } else {
+      h += '<button type="button" class="btn-dashed" style="margin-bottom:1rem" onclick="toggleEventForm(true)">＋ 出店を追加</button>';
+    }
+  } else {
+    h += '<p class="banner" style="background:var(--accent-soft);color:var(--text)">新しい出店の登録は、職員の方が「職員用」画面から行います。持ち出しと戻しはこの画面からできます</p>';
+  }
+  if (open.length > 0) {
+    h += '<h3 class="group-title">出店中</h3><ul class="plain">' + open.map(eventCardHTML).join("") + "</ul>";
+  } else {
+    h += '<p style="color:var(--dim);margin-top:1.25rem;font-size:' + (isEasy() ? "1.25rem" : "1rem") + '">いま出店中のものはありません</p>';
+  }
+  if (closed.length > 0) {
+    h += '<h3 class="group-title">終わった出店</h3><ul class="plain">' + closed.map(eventCardHTML).join("") + "</ul>";
+  }
+  return h;
+}
+
+function eventCardHTML(ev) {
+  const totals = eventTotals(ev);
+  let h = '<li class="card">';
+  h += '<div class="card-head"><div style="min-width:0">';
+  h += '<p class="card-title">' + esc(ev.name) + "</p>";
+  h += '<p class="card-note" style="font-size:' + (isEasy() ? "1.125rem" : ".875rem") + '">' + fmtDate(ev.date) +
+    (ev.place ? "　" + esc(ev.place) : "") + "</p>";
+  if (ev.note) h += '<p class="card-note">' + esc(ev.note) + "</p>";
+  h += "</div>";
+  h += ev.status === "closed"
+    ? '<span class="status-chip chip-ok">終わりました</span>'
+    : '<span class="status-chip chip-live">出店中</span>';
+  h += "</div>";
+
+  if (ev.lines.length === 0) {
+    h += '<p style="color:var(--dim);margin-top:.75rem">まだ持ち出した製品がありません。下のボタンから持ち出しを記録してください</p>';
+  } else {
+    h += '<ul class="plain" style="margin-top:.75rem">';
+    for (const line of ev.lines) {
+      const item = itemById(line.itemId);
+      const unit = item ? item.unit : "個";
+      h += '<li class="line-box" style="margin-bottom:.5rem">';
+      h += '<div class="card-head"><p style="font-weight:700;margin:0;font-size:' + (isEasy() ? "1.25rem" : "1rem") + '">' +
+        esc(item ? item.name : "（削除された製品）") + "</p>";
+      if (ev.status === "open" && item) {
+        h += '<button type="button" class="btn btn-accent" style="flex:0 0 auto;padding:0 1rem;min-height:' +
+          (isEasy() ? "3rem" : "2.5rem") + ";font-size:" + (isEasy() ? "1.125rem" : ".875rem") +
+          '" onclick="openReturn(' + ev.id + "," + line.id + ')">戻す</button>';
+      }
+      h += "</div>";
+      h += '<p style="color:var(--dim);margin:.25rem 0 0;font-size:' + (isEasy() ? "1.125rem" : ".875rem") + '">' +
+        "持ち出し " + fmtNum(line.takenQty) + " " + esc(unit) + "　／　戻し " + fmtNum(line.returnedQty) + " " + esc(unit) +
+        "　／　売れた数 <span style=\"font-weight:700;color:var(--text)\">" + fmtNum(lineSold(line)) + " " + esc(unit) + "</span>";
+      if (ev.status === "open" && line.returnedQty === 0) h += "（戻しを記録するまで仮の数です）";
+      h += "</p></li>";
+    }
+    h += "</ul>";
+  }
+
+  h += '<p style="color:var(--dim);margin-top:.75rem;font-size:' + (isEasy() ? "1.125rem" : ".875rem") + '">' +
+    "合計：持ち出し " + fmtNum(totals.taken) + " 点　／　戻し " + fmtNum(totals.returned) +
+    " 点　／　売れた数 " + fmtNum(totals.sold) + " 点</p>";
+
+  if (ev.status === "open") {
+    h += '<div style="margin-top:.75rem;display:flex;flex-direction:column;gap:.5rem">';
+    h += '<button type="button" class="btn btn-accent" style="min-height:' + (isEasy() ? "3.5rem" : "2.75rem") +
+      ";font-size:" + (isEasy() ? "1.25rem" : ".875rem") + '" onclick="openTakeOut(' + ev.id + ')">製品を持ち出す</button>';
+    if (confirmCloseEventId === ev.id) {
+      h += '<div class="confirm-box"><p>この出店を終わりにしますか？戻しが未記録の製品は「売れた数＝持ち出し数」として確定します</p>' +
+        '<div class="btn-row"><button type="button" class="btn btn-warn" onclick="setEventStatus(' + ev.id + ',\'closed\')">終わりにする</button>' +
+        '<button type="button" class="btn btn-soft" onclick="cancelConfirm()">やめる</button></div></div>';
+    } else {
+      h += '<button type="button" class="btn btn-soft" style="min-height:' + (isEasy() ? "3.5rem" : "2.75rem") +
+        ";font-size:" + (isEasy() ? "1.25rem" : ".875rem") + '" onclick="askCloseEvent(' + ev.id + ')">出店を終わりにする（戻し確定）</button>';
+    }
+    h += "</div>";
+  }
+  if (!isEasy()) {
+    h += '<div style="margin-top:.5rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">';
+    if (ev.status === "closed") {
+      h += '<button type="button" class="link-btn" onclick="setEventStatus(' + ev.id + ',\'open\')">出店中に戻す</button>';
+    }
+    if (confirmDeleteEventId === ev.id) {
+      h += '<span style="font-size:.875rem;font-weight:700;color:var(--warn)">削除しますか？（まだ外に出ている分は在庫に戻ります）</span>' +
+        '<button type="button" class="link-btn warn" onclick="deleteEvent(' + ev.id + ')">削除する</button>' +
+        '<button type="button" class="link-btn" onclick="cancelConfirm()">やめる</button>';
+    } else {
+      h += '<button type="button" class="link-btn" onclick="askDeleteEvent(' + ev.id + ')">この出店を削除</button>';
+    }
+    h += "</div>";
+  }
+  h += "</li>";
+  return h;
+}
+
+function toggleEventForm(show) { showEventForm = show; render(); }
+function askCloseEvent(id) { confirmCloseEventId = id; render(); }
+function askDeleteEvent(id) { confirmDeleteEventId = id; render(); }
+function submitEventForm(ev) {
+  ev.preventDefault();
+  const name = document.getElementById("ev-name").value.trim();
+  const errEl = document.getElementById("ev-error");
+  if (!name) { errEl.textContent = "出店の名前を入力してください"; errEl.style.display = "block"; return; }
+  const data = {
+    id: nextId("event"),
+    date: document.getElementById("ev-date").value || todayStr(),
+    name: name,
+    place: document.getElementById("ev-place").value.trim(),
+    status: "open",
+    note: document.getElementById("ev-note").value.trim(),
+    lines: []
+  };
+  mutate(() => { state.events.unshift(data); showEventForm = false; });
+}
+function setEventStatus(id, status) {
+  mutate(() => {
+    const e = state.events.find((x) => x.id === id);
+    if (e) e.status = status;
+    confirmCloseEventId = null;
+  });
+}
+/* 出店を削除するときは、外に出ている分（持ち出し−戻し）を在庫に戻してから消す */
+function deleteEvent(id) {
+  mutate(() => {
+    const e = state.events.find((x) => x.id === id);
+    if (e) {
+      for (const line of e.lines) {
+        const stillOut = line.takenQty - line.returnedQty;
+        const item = itemById(line.itemId);
+        if (stillOut > 0 && item) {
+          state.movements.unshift({
+            id: nextId("movement"), itemId: item.id, delta: stillOut, quantity: stillOut,
+            reason: "event_return", date: e.date,
+            note: "出店「" + e.name + "」の取り消しによる戻し", createdAt: new Date().toISOString()
+          });
+          item.stock += stillOut;
+        }
+      }
+      state.events = state.events.filter((x) => x.id !== id);
+    }
+    confirmDeleteEventId = null;
+  });
+}
+
+/* ---------- 賞味期限チェック ----------
+   在庫があるものだけを対象に、期限切れ・7日以内を近い順に並べる */
+function expirySectionHTML() {
+  const withStock = state.items.filter((i) => i.stock > 0);
+  const byDate = (a, b) => (a.expiryDate || "").localeCompare(b.expiryDate || "");
+  const attention = withStock.filter(needsExpiryAttention).sort(byDate);
+  const okList = withStock.filter((i) => i.expiryDate && !needsExpiryAttention(i)).sort(byDate);
+  const noDate = withStock.filter((i) => !i.expiryDate);
+  const expiredCount = attention.filter((i) => {
+    const lv = expiryLevel(i); return lv === "expired" || lv === "today";
+  }).length;
+
+  let h = '<p style="color:var(--dim);font-size:' + (isEasy() ? "1.125rem" : ".875rem") +
+    '">在庫があるものの賞味期限を、近い順に確認できます。期限切れ・今日が期限のものは先に売るか、廃棄を検討してください</p>';
+  if (expiredCount > 0) {
+    h += '<p class="banner" role="alert">期限切れ・今日が期限のものが ' + expiredCount + " 件あります</p>";
+  }
+  if (withStock.length === 0) {
+    h += '<div class="empty"><p class="empty-main">在庫があるものはありません</p></div>';
+    return h;
+  }
+  if (attention.length > 0) {
+    h += '<h3 class="group-title warn">期限が近いもの（7日以内・期限切れ）</h3><ul class="plain">' +
+      attention.map(expiryRowHTML).join("") + "</ul>";
+  } else {
+    h += '<p style="font-weight:700;color:var(--ok);font-size:' + (isEasy() ? "1.25rem" : "1rem") + '">期限が近いものはありません</p>';
+  }
+  if (okList.length > 0) {
+    h += '<h3 class="group-title">まだ余裕があるもの</h3><ul class="plain">' + okList.map(expiryRowHTML).join("") + "</ul>";
+  }
+  if (noDate.length > 0) {
+    h += '<h3 class="group-title">賞味期限が未設定のもの</h3><ul class="plain">' + noDate.map(expiryRowHTML).join("") + "</ul>";
+    if (isEasy()) h += '<p class="hint">期限の設定は、職員の方が「職員用」画面から行います</p>';
+  }
+  return h;
+}
+
+function expiryRowHTML(item) {
+  const lv = expiryLevel(item);
+  const badgeCls = (lv === "expired" || lv === "today" || lv === "soon") ? "chip-badge-warn"
+    : (lv === "near" ? "chip-badge-accent" : "");
+  let h = '<li class="card" style="margin-bottom:.5rem;' +
+    ((lv === "expired" || lv === "today") ? "border-color:var(--warn)" : "") + '">';
+  h += '<div class="card-head"><div style="min-width:0">';
+  h += '<p class="card-title" style="font-size:' + (isEasy() ? "1.5rem" : "1rem") + '">' + esc(item.name) +
+    '<span style="margin-left:.5rem;font-size:.875rem;font-weight:400;color:var(--dim)">' +
+    (item.kind === "product" ? "製品" : "材料・包材") + "</span></p>";
+  h += '<p class="card-note" style="font-size:' + (isEasy() ? "1.125rem" : ".875rem") + '">在庫 ' +
+    fmtNum(item.stock) + " " + esc(item.unit) +
+    (item.expiryDate ? "　賞味期限：" + fmtDate(item.expiryDate) : "　賞味期限：未設定") + "</p>";
+  h += "</div>";
+  if (item.expiryDate) {
+    h += '<span class="status-chip ' + badgeCls + '" style="' +
+      (badgeCls === "" ? "background:var(--accent-soft);color:var(--text)" : "") + '">' + expiryText(item) + "</span>";
+  } else {
+    h += '<span class="status-chip" style="background:var(--accent-soft);color:var(--dim)">未設定</span>';
+  }
+  h += "</div>";
+  if (!isEasy()) {
+    if (expiryEditingId === item.id) {
+      h += '<div style="margin-top:.75rem;display:flex;flex-wrap:wrap;gap:.5rem;align-items:flex-end">' +
+        '<div style="flex:1;min-width:10rem"><label for="expiry-edit-input">賞味期限</label>' +
+        '<input id="expiry-edit-input" type="date" value="' + esc(item.expiryDate || "") + '"></div>' +
+        '<button type="button" class="btn btn-accent" style="flex:0 0 auto;padding:0 1rem" onclick="saveExpiry(' + item.id + ')">保存</button>' +
+        '<button type="button" class="btn btn-soft" style="flex:0 0 auto;padding:0 1rem" onclick="saveExpiry(' + item.id + ',true)">期限を消す</button>' +
+        '<button type="button" class="link-btn" onclick="cancelExpiryEdit()">やめる</button></div>';
+    } else {
+      h += '<button type="button" class="link-btn accent" onclick="startExpiryEdit(' + item.id + ')">賞味期限を設定・変更する</button>';
+    }
+  }
+  h += "</li>";
+  return h;
+}
+function startExpiryEdit(id) { expiryEditingId = id; render(); }
+function cancelExpiryEdit() { expiryEditingId = null; render(); }
+function saveExpiry(id, clear) {
+  const val = clear ? "" : document.getElementById("expiry-edit-input").value;
+  mutate(() => {
+    const item = itemById(id);
+    if (item) item.expiryDate = val === "" ? null : val;
+    expiryEditingId = null;
+  });
+}
+
+/* ---------- 記録（履歴） ----------
+   記録を取り消すと、在庫もその分だけ元に戻る（職員用のみ） */
+function historySectionHTML() {
+  const list = state.movements.slice(0, 100);
+  if (list.length === 0) {
+    return '<div class="empty"><p class="empty-main">まだ記録がありません</p>' +
+      '<p class="hint">製品や材料のボタンから記録すると、ここに残ります</p></div>';
+  }
+  let h = '<ul class="plain">';
+  for (const m of list) {
+    const item = itemById(m.itemId);
+    const meta = REASON_META[m.reason] || { label: m.reason };
+    h += '<li class="card" style="margin-bottom:.5rem">';
+    h += '<div class="card-head"><div style="min-width:0">';
+    h += '<p class="card-title" style="font-size:' + (isEasy() ? "1.25rem" : "1rem") + '">' +
+      esc(item ? item.name : "（削除された品目）") +
+      '<span class="reason-chip">' + esc(meta.label) + "</span></p>";
+    h += '<p class="card-note">' + fmtDate(m.date) + (m.note ? "　" + esc(m.note) : "") + "</p>";
+    h += "</div>";
+    h += '<p class="delta ' + (m.delta >= 0 ? "plus" : "minus") + '">' +
+      (m.delta >= 0 ? "＋" : "−") + fmtNum(Math.abs(m.delta)) + " " + esc(item ? item.unit : "") + "</p>";
+    h += "</div>";
+    if (!isEasy() && item) {
+      if (confirmUndoMovementId === m.id) {
+        h += '<div style="margin-top:.25rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">' +
+          '<span style="font-size:.875rem;font-weight:700;color:var(--warn)">この記録を取り消しますか？（在庫も元に戻ります）</span>' +
+          '<button type="button" class="link-btn warn" onclick="doUndoMovement(' + m.id + ')">取り消す</button>' +
+          '<button type="button" class="link-btn" onclick="cancelConfirm()">やめる</button></div>';
+      } else {
+        h += '<button type="button" class="link-btn" onclick="askUndoMovement(' + m.id + ')">記録を取り消す</button>';
+      }
+    }
+    h += "</li>";
+  }
+  h += "</ul>";
+  return h;
+}
+function askUndoMovement(id) { confirmUndoMovementId = id; render(); }
+function doUndoMovement(id) {
+  mutate(() => { undoMovement(id); confirmUndoMovementId = null; });
+}
+
+/* ============================================================
+   ダイアログ（モーダル）
+   dlg という1つのオブジェクトに「今開いているダイアログの状態」を持ち、
+   ステッパーの操作では画面全体ではなく数値表示だけを書き換える
+   ============================================================ */
+let dlg = null;
+
+function openModal(title, bodyHTML) {
+  document.getElementById("sheet-title").textContent = title;
+  document.getElementById("sheet-body").innerHTML = bodyHTML;
+  document.getElementById("overlay").classList.add("open");
+}
+function closeModal() {
+  document.getElementById("overlay").classList.remove("open");
+  dlg = null;
+}
+function setSheetBody(html) { document.getElementById("sheet-body").innerHTML = html; }
+
+/* ＋／− ステッパー（−10、−1、数値、＋1、＋10） */
+function stepperHTML(value, unit) {
+  return '<div class="stepper">' +
+    '<button type="button" class="step-btn step-minus" aria-label="10へらす" onclick="dlgStep(-10)">−10</button>' +
+    '<button type="button" class="step-btn step-minus" aria-label="1へらす" onclick="dlgStep(-1)">−1</button>' +
+    '<div class="step-value"><span id="dlg-qty">' + fmtNum(value) + '</span><span class="unit"> ' + esc(unit) + "</span></div>" +
+    '<button type="button" class="step-btn step-plus" aria-label="1ふやす" onclick="dlgStep(1)">＋1</button>' +
+    '<button type="button" class="step-btn step-plus" aria-label="10ふやす" onclick="dlgStep(10)">＋10</button>' +
+    "</div>";
+}
+function dlgStep(d) {
+  if (!dlg) return;
+  let v = dlg.qty + d;
+  if (!dlg.allowNegative) v = Math.max(0, v);
+  if (dlg.maxQty != null) v = Math.min(v, dlg.maxQty);
+  dlg.qty = v;
+  refreshDlgNumbers();
+}
+function dlgSetQty(v) {
+  if (!dlg) return;
+  v = Number(v) || 0;
+  if (!dlg.allowNegative) v = Math.max(0, v);
+  if (dlg.maxQty != null) v = Math.min(v, dlg.maxQty);
+  dlg.qty = v;
+  refreshDlgNumbers();
+}
+/* ダイアログ内の数値表示（ステッパー・合計・ボタン有効化）をまとめて更新する */
+function refreshDlgNumbers() {
+  if (!dlg) return;
+  const q = document.getElementById("dlg-qty");
+  if (q) q.textContent = fmtNum(dlg.qty);
+  const input = document.getElementById("dlg-qty-input");
+  if (input && document.activeElement !== input) input.value = dlg.qty === 0 ? "" : dlg.qty;
+  if (typeof dlg.onNumbers === "function") dlg.onNumbers();
+}
+function dlgError(msg) {
+  const el = document.getElementById("dlg-error");
+  if (el) { el.textContent = msg; el.style.display = msg ? "block" : "none"; }
+}
+function bigBtnStyle() { return isEasy() ? "min-height:4rem;font-size:1.5rem" : "min-height:3rem;font-size:1rem"; }
+
+/* ---------- 在庫の記録ダイアログ ----------
+   種類を選ぶ → 数を合わせる → 確認画面 → 記録しました、の3段階 */
+function openRecord(itemId, reason) {
+  const item = itemById(itemId);
+  if (!item) return;
+  dlg = {
+    type: "record", itemId: itemId, reason: reason, qty: 1,
+    step: "input", allowNegative: reason === "adjust", maxQty: null,
+    savedStock: null, error: ""
+  };
+  renderRecordDialog();
+}
+function recordReasons(item) {
+  const rs = item.kind === "product"
+    ? ["production", "shipment", "event_out", "event_return", "waste"]
+    : ["usage", "loss", "purchase", "waste"];
+  if (!isEasy()) rs.push("adjust");
+  return rs;
+}
+function setRecordReason(r) {
+  if (!dlg) return;
+  dlg.reason = r;
+  dlg.allowNegative = r === "adjust";
+  if (!dlg.allowNegative && dlg.qty < 0) dlg.qty = Math.abs(dlg.qty);
+  renderRecordDialog();
+}
+function renderRecordDialog() {
+  const item = itemById(dlg.itemId);
+  if (!item) { closeModal(); return; }
+  const meta = REASON_META[dlg.reason];
+  document.getElementById("sheet-title").textContent = item.name;
+  document.getElementById("overlay").classList.add("open");
+
+  if (dlg.step === "done") {
+    setSheetBody(
+      '<p class="big-done">記録しました</p>' +
+      '<p class="center" style="margin-top:1rem;font-size:' + (isEasy() ? "1.25rem" : "1rem") + '">' +
+      esc(item.name) + ' の在庫は <span style="font-weight:700">' + fmtNum(dlg.savedStock) + " " + esc(item.unit) + "</span> です</p>" +
+      '<button type="button" class="btn btn-accent" style="width:100%;margin-top:1.5rem;' + bigBtnStyle() + '" onclick="closeModal()">閉じる</button>'
+    );
+    return;
+  }
+  const delta = dlg.reason === "adjust" ? dlg.qty : meta.sign * Math.abs(dlg.qty);
+  const afterStock = item.stock + delta;
+
+  if (dlg.step === "confirm") {
+    const date = dlg.date || todayStr();
+    setSheetBody(
+      '<p style="line-height:1.7;font-size:' + (isEasy() ? "1.5rem" : "1.125rem") + '">' +
+      fmtDate(date) + "、" + esc(item.name) + ' を <span style="font-weight:700">' +
+      fmtNum(Math.abs(dlg.qty)) + " " + esc(item.unit) + "</span>、" + meta.sentence +
+      "<br>在庫は " + fmtNum(item.stock) + ' → <span style="font-weight:700">' + fmtNum(afterStock) + " " + esc(item.unit) + "</span> になります</p>" +
+      '<p style="color:var(--dim);margin-top:.75rem;font-size:' + (isEasy() ? "1.125rem" : ".875rem") + '">この内容で記録してよろしいですか？</p>' +
+      '<p class="err" id="dlg-error" role="alert" style="display:' + (dlg.error ? "block" : "none") + '">' + esc(dlg.error) + "</p>" +
+      '<button type="button" class="btn btn-accent" style="width:100%;margin-top:1.25rem;' + bigBtnStyle() + '" onclick="submitRecord()">はい、記録する</button>' +
+      '<button type="button" class="btn btn-soft" style="width:100%;margin-top:.75rem;' + bigBtnStyle() + '" onclick="backToRecordInput()">もどる</button>'
+    );
+    return;
+  }
+
+  /* 入力ステップ */
+  let h = '<p style="color:var(--dim);font-size:' + (isEasy() ? "1.125rem" : ".875rem") + '">今の在庫： <span style="font-weight:700;color:var(--text)">' +
+    fmtNum(item.stock) + " " + esc(item.unit) + "</span></p>";
+  h += '<div class="chips" role="radiogroup" aria-label="記録の種類">';
+  for (const r of recordReasons(item)) {
+    h += '<button type="button" class="chip-btn' + (dlg.reason === r ? " active" : "") +
+      '" role="radio" aria-checked="' + String(dlg.reason === r) + '" onclick="setRecordReason(\'' + r + '\')">' +
+      REASON_META[r].label + "</button>";
+  }
+  h += "</div>";
+  h += stepperHTML(dlg.qty, item.unit);
+  if (!isEasy()) {
+    h += '<div class="direct-input"><span>数を直接入力</span>' +
+      '<input id="dlg-qty-input" type="number" value="' + (dlg.qty === 0 ? "" : dlg.qty) +
+      '" oninput="dlgSetQty(this.value)"></div>';
+  }
+  if (dlg.reason === "adjust") {
+    h += '<p class="hint center">棚卸しなどで数を合わせるときに使います（マイナスも入力できます）</p>';
+  }
+  h += '<p class="center" style="margin-top:1rem;font-size:' + (isEasy() ? "1.25rem" : "1rem") +
+    '">記録すると在庫は <span style="font-weight:700" id="dlg-after">' + fmtNum(afterStock) + " " + esc(item.unit) + '</span> になります</p>';
+  h += '<p class="warn-center" id="dlg-negwarn" style="display:' + (afterStock < 0 ? "block" : "none") +
+    '">在庫がマイナスになります。数が合っているか確認してください</p>';
+  if (!isEasy()) {
+    if (!dlg.date) dlg.date = todayStr();
+    h += '<div class="form-grid">' +
+      '<div><label for="dlg-date">日付</label><input id="dlg-date" type="date" value="' + dlg.date + '" onchange="dlg.date=this.value"></div>' +
+      '<div><label for="dlg-note">メモ（任意）</label><input id="dlg-note" type="text" placeholder="例：イベント販売分" value="' + esc(dlg.note || "") + '" oninput="dlg.note=this.value"></div></div>';
+  } else {
+    h += '<p class="hint center">日付は今日（' + fmtDate(todayStr()) + "）で記録します</p>";
+  }
+  h += '<p class="err" id="dlg-error" role="alert" style="display:none"></p>';
+  h += '<button type="button" class="btn btn-accent" id="dlg-confirm-btn" style="width:100%;margin-top:1.5rem;' +
+    bigBtnStyle() + '" onclick="confirmRecord()">確認する</button>';
+  setSheetBody(h);
+
+  /* ステッパーを動かしたときに「記録すると在庫は…」も連動させる */
+  dlg.onNumbers = function () {
+    const it = itemById(dlg.itemId);
+    if (!it) return;
+    const m = REASON_META[dlg.reason];
+    const d = dlg.reason === "adjust" ? dlg.qty : m.sign * Math.abs(dlg.qty);
+    const after = it.stock + d;
+    const a = document.getElementById("dlg-after");
+    if (a) a.textContent = fmtNum(after) + " " + it.unit;
+    const w = document.getElementById("dlg-negwarn");
+    if (w) w.style.display = after < 0 ? "block" : "none";
+    const btn = document.getElementById("dlg-confirm-btn");
+    if (btn) btn.disabled = dlg.reason === "adjust" ? dlg.qty === 0 : dlg.qty <= 0;
+  };
+  refreshDlgNumbers();
+}
+function confirmRecord() {
+  if (!dlg) return;
+  const valid = dlg.reason === "adjust" ? dlg.qty !== 0 : dlg.qty > 0;
+  if (!valid) { dlgError("数を入力してください"); return; }
+  if (isEasy()) { dlg.date = todayStr(); dlg.note = ""; }
+  dlg.step = "confirm";
+  dlg.error = "";
+  renderRecordDialog();
+}
+function backToRecordInput() { dlg.step = "input"; renderRecordDialog(); }
+function submitRecord() {
+  if (!dlg) return;
+  try {
+    const stock = applyMovement(dlg.itemId, dlg.reason, dlg.qty, dlg.date || todayStr(), (dlg.note || "").trim());
+    dlg.savedStock = stock;
+    dlg.step = "done";
+    mutate(() => {});
+    renderRecordDialog();
+  } catch (e) {
+    dlg.error = e.message || "うまく保存できませんでした。もう一度お試しください";
+    renderRecordDialog();
+  }
+}
+
+/* ---------- 品目の追加・編集ダイアログ（職員用） ---------- */
+function openItemForm(itemId, kind) {
+  const item = itemId != null ? itemById(itemId) : null;
+  dlg = { type: "itemform", itemId: item ? item.id : null, kind: item ? item.kind : kind, confirmDelete: false };
+  const k = dlg.kind;
+  document.getElementById("sheet-title").textContent =
+    item ? "品目を編集" : (k === "product" ? "製品を追加" : "材料・包材を追加");
+  document.getElementById("overlay").classList.add("open");
+  let h = '<div class="form-grid" style="margin-top:0">';
+  h += '<div><label for="if-name">名前</label><input id="if-name" type="text" value="' + esc(item ? item.name : "") +
+    '" placeholder="' + (k === "product" ? "例：クッキー" : "例：小麦粉") + '"></div>';
+  h += '<div><label for="if-unit">単位</label><input id="if-unit" type="text" list="unit-suggestions" value="' +
+    esc(item ? item.unit : "個") + '"><datalist id="unit-suggestions">' +
+    UNIT_SUGGESTIONS.map((u) => '<option value="' + u + '"></option>').join("") + "</datalist></div>";
+  if (!item) {
+    h += '<div><label for="if-initial">今ある数（最初の在庫）</label><input id="if-initial" type="number" min="0" placeholder="0"></div>';
+  }
+  h += '<div><label for="if-threshold">少なくなったら知らせる数（任意）</label><input id="if-threshold" type="number" min="0" value="' +
+    (item && item.lowThreshold != null ? item.lowThreshold : "") + '" placeholder="例：10（空欄なら知らせません）"></div>';
+  h += '<div><label for="if-expiry">賞味期限（任意）</label><input id="if-expiry" type="date" value="' + esc(item ? (item.expiryDate || "") : "") + '">' +
+    '<p class="hint">今ある在庫の期限です。作り直したら、新しい期限に変えてください。「期限」画面でまとめて確認できます</p></div>';
+  h += '<div><label for="if-note">メモ（任意）</label><input id="if-note" type="text" value="' + esc(item ? item.note : "") + '"></div>';
+  h += '<p class="err" id="dlg-error" role="alert" style="display:none"></p>';
+  h += '<button type="button" class="btn btn-accent" style="width:100%;min-height:3rem" onclick="submitItemForm()">保存する</button>';
+  if (item) {
+    h += '<div id="if-delete-area"><button type="button" class="btn" style="width:100%;background:none;color:var(--warn);font-weight:700" onclick="askDeleteItem()">この品目を削除する</button></div>';
+  }
+  h += "</div>";
+  setSheetBody(h);
+}
+function askDeleteItem() {
+  const item = itemById(dlg.itemId);
+  document.getElementById("if-delete-area").innerHTML =
+    '<div class="confirm-box"><p>「' + esc(item.name) + '」と、その記録をすべて削除します。よろしいですか？</p>' +
+    '<div class="btn-row"><button type="button" class="btn btn-warn" onclick="submitDeleteItem()">削除する</button>' +
+    '<button type="button" class="btn btn-soft" onclick="openItemForm(' + item.id + ')">やめる</button></div></div>';
+}
+function submitItemForm() {
+  const name = document.getElementById("if-name").value.trim();
+  if (!name) { dlgError("名前を入力してください"); return; }
+  const unit = document.getElementById("if-unit").value.trim() || "個";
+  const thVal = document.getElementById("if-threshold").value.trim();
+  const threshold = thVal === "" ? null : Number(thVal);
+  const exVal = document.getElementById("if-expiry").value;
+  const expiryDate = exVal === "" ? null : exVal;
+  const note = document.getElementById("if-note").value.trim();
+  const editingId = dlg.itemId;
+  mutate(() => {
+    if (editingId != null) {
+      const item = itemById(editingId);
+      if (item) { item.name = name; item.unit = unit; item.lowThreshold = threshold; item.expiryDate = expiryDate; item.note = note; }
+    } else {
+      const initial = Number(document.getElementById("if-initial").value) || 0;
+      const item = {
+        id: nextId("item"), kind: dlg.kind, name: name, unit: unit,
+        stock: initial, lowThreshold: threshold, expiryDate: expiryDate, note: note
+      };
+      state.items.push(item);
+      if (initial > 0) {
+        state.movements.unshift({
+          id: nextId("movement"), itemId: item.id, delta: initial, quantity: initial,
+          reason: "adjust", date: todayStr(), note: "最初の在庫", createdAt: new Date().toISOString()
+        });
+      }
+    }
+  });
+  closeModal();
+}
+/* 品目を消すときは、その品目の記録と出店の明細も消し、製造予定との結びつきを外す */
+function submitDeleteItem() {
+  const id = dlg.itemId;
+  mutate(() => {
+    state.movements = state.movements.filter((m) => m.itemId !== id);
+    for (const e of state.events) e.lines = e.lines.filter((l) => l.itemId !== id);
+    for (const s of state.schedules) if (s.itemId === id) s.itemId = null;
+    state.items = state.items.filter((i) => i.id !== id);
+  });
+  closeModal();
+}
+
+/* ---------- 製造予定の「できた」ダイアログ ----------
+   実際に作れた数を聞いて、製品が結びついていれば在庫に加える */
+function openCompleteSchedule(id) {
+  const s = state.schedules.find((x) => x.id === id);
+  if (!s) return;
+  dlg = {
+    type: "complete", scheduleId: id, qty: s.plannedQty != null ? s.plannedQty : 0,
+    step: "input", allowNegative: false, maxQty: null, error: ""
+  };
+  renderCompleteDialog();
+}
+function renderCompleteDialog() {
+  const s = state.schedules.find((x) => x.id === dlg.scheduleId);
+  if (!s) { closeModal(); return; }
+  const item = s.itemId != null ? itemById(s.itemId) : null;
+  document.getElementById("sheet-title").textContent = "製造ができました";
+  document.getElementById("overlay").classList.add("open");
+  if (dlg.step === "confirm") {
+    setSheetBody(
+      '<p style="line-height:1.7;font-size:' + (isEasy() ? "1.5rem" : "1.125rem") + '">「' + esc(s.title) +
+      '」を <span style="font-weight:700">' + fmtNum(dlg.qty) + " 個</span> 作りました" +
+      (item ? "<br>製品「" + esc(item.name) + "」の在庫に加えます" : "") + "</p>" +
+      '<p style="color:var(--dim);margin-top:.75rem;font-size:' + (isEasy() ? "1.125rem" : ".875rem") + '">この内容で記録してよろしいですか？</p>' +
+      '<p class="err" id="dlg-error" role="alert" style="display:' + (dlg.error ? "block" : "none") + '">' + esc(dlg.error) + "</p>" +
+      '<button type="button" class="btn btn-accent" style="width:100%;margin-top:1.25rem;' + bigBtnStyle() + '" onclick="submitCompleteSchedule()">はい、記録する</button>' +
+      '<button type="button" class="btn btn-soft" style="width:100%;margin-top:.75rem;' + bigBtnStyle() + '" onclick="dlg.step=\'input\';renderCompleteDialog()">もどる</button>'
+    );
+    return;
+  }
+  setSheetBody(
+    '<p style="font-size:' + (isEasy() ? "1.25rem" : "1rem") + '">' + fmtDate(s.date) + "「" + esc(s.title) + "」" +
+    (s.plannedQty != null ? '<span style="color:var(--dim)">（予定 ' + fmtNum(s.plannedQty) + " 個）</span>" : "") + "</p>" +
+    '<p style="font-weight:700;margin-top:1rem;font-size:' + (isEasy() ? "1.25rem" : "1rem") + '">実際に作れた数は？</p>' +
+    stepperHTML(dlg.qty, "個") +
+    '<button type="button" class="btn btn-accent" style="width:100%;margin-top:1.5rem;' + bigBtnStyle() +
+    '" onclick="dlg.step=\'confirm\';renderCompleteDialog()">確認する</button>'
+  );
+}
+function submitCompleteSchedule() {
+  const s = state.schedules.find((x) => x.id === dlg.scheduleId);
+  if (!s) { closeModal(); return; }
+  const qty = dlg.qty;
+  mutate(() => {
+    s.status = "done";
+    s.actualQty = qty;
+    if (s.itemId != null && qty > 0) {
+      const item = itemById(s.itemId);
+      if (item) {
+        state.movements.unshift({
+          id: nextId("movement"), itemId: item.id, delta: qty, quantity: qty,
+          reason: "production", date: s.date,
+          note: "予定「" + s.title + "」の製造", createdAt: new Date().toISOString()
+        });
+        item.stock += qty;
+      }
+    }
+  });
+  closeModal();
+}
+
+/* ---------- 出店への持ち出しダイアログ ----------
+   在庫より多い数は選べないようにする（はっきりしたエラー文で止める） */
+function openTakeOut(eventId) {
+  const ev = state.events.find((x) => x.id === eventId);
+  if (!ev) return;
+  const available = state.items.filter((i) => i.kind === "product" && i.stock > 0);
+  dlg = {
+    type: "takeout", eventId: eventId,
+    itemId: available.length ? available[0].id : null,
+    qty: 1, allowNegative: false, maxQty: null, error: ""
+  };
+  document.getElementById("sheet-title").textContent = "「" + ev.name + "」へ持ち出す";
+  document.getElementById("overlay").classList.add("open");
+  if (available.length === 0) {
+    setSheetBody('<p style="font-size:' + (isEasy() ? "1.25rem" : "1rem") +
+      '">在庫がある製品がありません。先に「製品」画面で在庫を登録してください</p>');
+    return;
+  }
+  let h = '<div><label for="to-item" style="font-size:' + (isEasy() ? "1.25rem" : ".875rem") + ';color:var(--text);font-weight:700">製品</label>' +
+    '<select id="to-item" onchange="takeOutSelectItem(this.value)">' +
+    available.map((p) => '<option value="' + p.id + '"' + (dlg.itemId === p.id ? " selected" : "") + ">" +
+      esc(p.name) + "（在庫 " + fmtNum(p.stock) + " " + esc(p.unit) + "）</option>").join("") + "</select></div>";
+  h += '<p id="to-expiry" style="margin-top:.5rem;font-weight:700;color:var(--warn)"></p>';
+  h += '<p style="font-weight:700;margin-top:1.25rem;font-size:' + (isEasy() ? "1.25rem" : "1rem") + '">持ち出す数は？</p>';
+  h += '<div id="to-stepper"></div>';
+  h += '<p class="warn-center" id="to-overwarn" style="display:none"></p>';
+  h += '<p class="err" id="dlg-error" role="alert" style="display:none"></p>';
+  h += '<button type="button" class="btn btn-accent" id="to-submit" style="width:100%;margin-top:1.5rem;' +
+    bigBtnStyle() + '" onclick="submitTakeOut()">持ち出しを記録する</button>';
+  h += '<p class="hint center">記録すると、工房の在庫から持ち出した数だけ減ります</p>';
+  setSheetBody(h);
+  refreshTakeOut();
+}
+function takeOutSelectItem(v) {
+  dlg.itemId = Number(v);
+  dlg.qty = 1;
+  refreshTakeOut();
+  refreshDlgNumbers();
+}
+function refreshTakeOut() {
+  const item = dlg && dlg.itemId != null ? itemById(dlg.itemId) : null;
+  const holder = document.getElementById("to-stepper");
+  if (holder && item) holder.innerHTML = stepperHTML(dlg.qty, item.unit);
+  const ex = document.getElementById("to-expiry");
+  if (ex) ex.textContent = item && item.expiryDate
+    ? "この製品の賞味期限は " + fmtDate(item.expiryDate) + "（" + expiryText(item) + "）です" : "";
+  dlg.onNumbers = function () {
+    const it = itemById(dlg.itemId);
+    if (!it) return;
+    const over = dlg.qty > it.stock;
+    const w = document.getElementById("to-overwarn");
+    if (w) {
+      w.style.display = over ? "block" : "none";
+      if (over) w.textContent = "在庫（" + fmtNum(it.stock) + " " + it.unit + "）より多くは持ち出せません";
+    }
+    const btn = document.getElementById("to-submit");
+    if (btn) btn.disabled = dlg.qty <= 0 || over;
+  };
+  refreshDlgNumbers();
+}
+function submitTakeOut() {
+  const ev = state.events.find((x) => x.id === dlg.eventId);
+  const item = itemById(dlg.itemId);
+  if (!ev || !item) { closeModal(); return; }
+  if (ev.status !== "open") { dlgError("この出店はすでに終わっています"); return; }
+  if (dlg.qty <= 0) { dlgError("数を入力してください"); return; }
+  if (dlg.qty > item.stock) {
+    dlgError("在庫が足りません（今の在庫は " + fmtNum(item.stock) + " " + item.unit + " です）");
+    return;
+  }
+  const qty = dlg.qty;
+  mutate(() => {
+    let line = ev.lines.find((l) => l.itemId === item.id);
+    if (line) line.takenQty += qty;
+    else { line = { id: nextId("line"), itemId: item.id, takenQty: qty, returnedQty: 0 }; ev.lines.push(line); }
+    state.movements.unshift({
+      id: nextId("movement"), itemId: item.id, delta: -qty, quantity: qty,
+      reason: "event_out", date: ev.date,
+      note: "出店「" + ev.name + "」へ持ち出し", createdAt: new Date().toISOString()
+    });
+    item.stock -= qty;
+  });
+  closeModal();
+}
+
+/* ---------- 出店からの戻しダイアログ ----------
+   戻った数を入れると、売れた数（持ち出し−戻し）がその場で分かる */
+function openReturn(eventId, lineId) {
+  const ev = state.events.find((x) => x.id === eventId);
+  if (!ev) return;
+  const line = ev.lines.find((l) => l.id === lineId);
+  if (!line) return;
+  const item = itemById(line.itemId);
+  dlg = {
+    type: "return", eventId: eventId, lineId: lineId,
+    qty: line.returnedQty, allowNegative: false, maxQty: line.takenQty, error: ""
+  };
+  document.getElementById("sheet-title").textContent = (item ? item.name : "") + " を戻す";
+  document.getElementById("overlay").classList.add("open");
+  const unit = item ? item.unit : "個";
+  let h = '<p style="font-size:' + (isEasy() ? "1.25rem" : "1rem") + '">「' + esc(ev.name) +
+    '」へ持ち出した数： <span style="font-weight:700">' + fmtNum(line.takenQty) + " " + esc(unit) + "</span></p>";
+  h += '<p style="font-weight:700;margin-top:1.25rem;font-size:' + (isEasy() ? "1.25rem" : "1rem") + '">売れ残って戻ってきた数は？</p>';
+  h += stepperHTML(dlg.qty, unit);
+  h += '<p class="center" style="margin-top:1rem;font-size:' + (isEasy() ? "1.25rem" : "1rem") +
+    '">売れた数は <span style="font-weight:700" id="ret-sold"></span> になります</p>';
+  h += '<p class="hint center">戻った数だけ、工房の在庫に足されます。全て売れたときは 0 のまま記録してください</p>';
+  h += '<p class="err" id="dlg-error" role="alert" style="display:none"></p>';
+  h += '<button type="button" class="btn btn-accent" style="width:100%;margin-top:1.5rem;' +
+    bigBtnStyle() + '" onclick="submitReturn()">戻しを記録する</button>';
+  setSheetBody(h);
+  dlg.onNumbers = function () {
+    const ev2 = state.events.find((x) => x.id === dlg.eventId);
+    const ln = ev2 ? ev2.lines.find((l) => l.id === dlg.lineId) : null;
+    const it = ln ? itemById(ln.itemId) : null;
+    const el = document.getElementById("ret-sold");
+    if (el && ln) el.textContent = fmtNum(Math.max(0, ln.takenQty - dlg.qty)) + " " + (it ? it.unit : "個");
+  };
+  refreshDlgNumbers();
+}
+function submitReturn() {
+  const ev = state.events.find((x) => x.id === dlg.eventId);
+  if (!ev) { closeModal(); return; }
+  const line = ev.lines.find((l) => l.id === dlg.lineId);
+  if (!line) { closeModal(); return; }
+  if (dlg.qty > line.takenQty) { dlgError("戻った数は、持ち出した数より多くはできません"); return; }
+  const newReturned = dlg.qty;
+  mutate(() => {
+    const diff = newReturned - line.returnedQty;
+    if (diff !== 0) {
+      const item = itemById(line.itemId);
+      if (item) {
+        state.movements.unshift({
+          id: nextId("movement"), itemId: item.id, delta: diff, quantity: Math.abs(diff),
+          reason: diff > 0 ? "event_return" : "event_out", date: ev.date,
+          note: diff > 0 ? "出店「" + ev.name + "」から戻し" : "出店「" + ev.name + "」の戻し数を修正",
+          createdAt: new Date().toISOString()
+        });
+        item.stock += diff;
+      }
+    }
+    line.returnedQty = newReturned;
+  });
+  closeModal();
+}
+
+/* ============================================================
+   暗証番号（PIN）ゲートと起動処理
+   PINは「知らない人がうっかり開けない」ための簡易保護で、本格的な
+   セキュリティではない。解除状態は sessionStorage だけに残す
+   （タブを閉じると再入力が必要）
+   ============================================================ */
+function pinRequired() {
+  return !!(CFG.APP_PIN && String(CFG.APP_PIN).length > 0);
+}
+function pinUnlocked() {
+  try { return sessionStorage.getItem("kashi-unlocked") === "1"; } catch (e) { return false; }
+}
+function submitPin() {
+  const v = document.getElementById("pin-input").value;
+  if (v === String(CFG.APP_PIN)) {
+    try { sessionStorage.setItem("kashi-unlocked", "1"); } catch (e) {}
+    document.getElementById("pin-screen").classList.remove("open");
+    startApp();
+  } else {
+    document.getElementById("pin-error").style.display = "block";
+  }
+}
+
+async function startApp() {
+  const loading = document.getElementById("loading");
+  loading.style.display = "block";
+  try {
+    await loadState();
+  } catch (e) {
+    loading.innerHTML = '<p style="font-weight:700;color:var(--warn)">読み込めませんでした</p>' +
+      '<button type="button" class="btn btn-accent" style="margin-top:1rem;padding:0 1.5rem" onclick="startApp()">もう一度読み込む</button>';
+    return;
+  }
+  loading.style.display = "none";
+  document.getElementById("app").style.display = "block";
+  render();
+}
+
+/* 起動：PINが設定されていて未解除なら、まずPIN画面を出す */
+(function boot() {
+  const pinInput = document.getElementById("pin-input");
+  if (pinInput) {
+    pinInput.addEventListener("keydown", function (e) { if (e.key === "Enter") submitPin(); });
+  }
+  if (pinRequired() && !pinUnlocked()) {
+    document.getElementById("pin-screen").classList.add("open");
+  } else {
+    startApp();
+  }
+})();
+</script>
+</body>
+</html>
