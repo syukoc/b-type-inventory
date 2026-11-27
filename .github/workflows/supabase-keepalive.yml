@@ -1,0 +1,31 @@
+# Supabase keep-alive — B型在庫アプリ用
+name: Supabase keep-alive
+
+"on":
+  schedule:
+    # 毎日 09:30 JST (00:30 UTC)
+    - cron: "30 0 * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Read-only ping to kv_state
+        run: |
+          set -euo pipefail
+          URL="$(grep -oP 'SUPABASE_URL:\s*"\K[^"]+' config.js)"
+          KEY="$(grep -oP 'SUPABASE_ANON_KEY:\s*"\K[^"]+' config.js)"
+          if [ -z "$URL" ] || [ -z "$KEY" ]; then
+            echo "config.js から SUPABASE_URL / SUPABASE_ANON_KEY が読めませんでした" >&2
+            exit 1
+          fi
+          curl -fsS --max-time 30 \
+            "$URL/rest/v1/kv_state?select=key,updated_at&key=eq.state-v1" \
+            -H "apikey: $KEY" \
+            -H "Authorization: Bearer $KEY" \
+            -H "Accept: application/json"
+          echo "keep-alive OK"
